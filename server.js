@@ -7,17 +7,21 @@ const crypto = require('crypto');
 
 const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, 'data.json');
-const PASSWORD = '123456'; // 所有测试账户统一密码
 
-// ==================== 10 个预设账户（uid 固定，name 可自定义） ====================
+// ==================== 10 个预设账户（uid 固定，name 可自定义，密码独立） ====================
+const DEFAULT_PASSWORD = '123456';
 const PRESET_ACCOUNTS = [
-  '猎鹰', '闪电', '雷霆', '疾风', '烈焰',
-  '苍穹', '流星', '风暴', '幻影', '战神'
-].map((name, i) => ({
-  uid: 'TF' + (1001 + i),
-  name,
-  password: PASSWORD,
-}));
+  { uid: 'TF1001', name: '猎鹰', password: '710072' },
+  { uid: 'TF1002', name: '闪电', password: DEFAULT_PASSWORD },
+  { uid: 'TF1003', name: '雷霆', password: DEFAULT_PASSWORD },
+  { uid: 'TF1004', name: '疾风', password: DEFAULT_PASSWORD },
+  { uid: 'TF1005', name: '烈焰', password: DEFAULT_PASSWORD },
+  { uid: 'TF1006', name: '苍穹', password: DEFAULT_PASSWORD },
+  { uid: 'TF1007', name: '流星', password: DEFAULT_PASSWORD },
+  { uid: 'TF1008', name: '风暴', password: DEFAULT_PASSWORD },
+  { uid: 'TF1009', name: '幻影', password: DEFAULT_PASSWORD },
+  { uid: 'TF1010', name: '战神', password: DEFAULT_PASSWORD },
+];
 
 // ==================== 数据加载 / 保存 ====================
 function load() {
@@ -31,9 +35,14 @@ function save() {
 }
 
 let db = load();
-// 合并预设账户（防止重复 / 缺失）
+// 合并预设账户（防止重复 / 缺失，并同步密码）
 for (const a of PRESET_ACCOUNTS) {
-  if (!db.accounts.find(x => x.uid === a.uid)) db.accounts.push({ ...a });
+  const existing = db.accounts.find(x => x.uid === a.uid);
+  if (existing) {
+    existing.password = a.password; // 密码是系统固定凭证，始终以预设为准
+  } else {
+    db.accounts.push({ ...a });
+  }
 }
 if (!db.scores) db.scores = {};
 if (!db.friends) db.friends = {};
@@ -63,7 +72,7 @@ app.post('/api/login', (req, res) => {
   const password = String(req.body?.password || '');
   const acc = findAccount(uid);
   if (!acc) return res.status(401).json({ error: '账户不存在' });
-  if (password !== PASSWORD) return res.status(401).json({ error: '密码错误' });
+  if (password !== acc.password) return res.status(401).json({ error: '密码错误' });
   const token = crypto.randomBytes(24).toString('hex');
   sessions.set(token, acc.uid);
   res.json({ token, uid: acc.uid, name: acc.name });
@@ -222,9 +231,34 @@ wss.on('connection', (ws, req) => {
   });
 });
 
-server.listen(PORT, () => {
-  console.log('雷霆战机服务器已启动');
-  console.log('  本地: http://localhost:' + PORT);
-  console.log('  账户: ' + db.accounts.map(a => a.uid).join(', '));
-  console.log('  密码: ' + PASSWORD);
+let actualPort = PORT;
+let portRetries = 0;
+
+// ws 库会把 http server 的 error 转发到自身，这里吞掉 EADDRINUSE（由下面 server.on('error') 处理）
+wss.on('error', (e) => {
+  if (e.code !== 'EADDRINUSE') console.error('WebSocket 错误:', e.message);
 });
+
+server.on('error', (e) => {
+  if (e.code === 'EADDRINUSE') {
+    if (++portRetries > 10) {
+      console.error('⚠ 3000-3010 端口均被占用，请释放端口后重试，或设置 PORT 环境变量');
+      process.exit(1);
+    }
+    actualPort += 1;
+    console.log('⚠ 端口 ' + (actualPort - 1) + ' 已被占用，自动改用端口 ' + actualPort);
+    server.listen(actualPort);
+  } else {
+    console.error('服务器启动失败:', e.message);
+    process.exit(1);
+  }
+});
+
+server.on('listening', () => {
+  console.log('雷霆战机服务器已启动');
+  console.log('  本地: http://localhost:' + actualPort);
+  console.log('  账户: ' + db.accounts.map(a => a.uid).join(', '));
+  console.log('  密码: TF1001=710072，其余账户=' + DEFAULT_PASSWORD);
+});
+
+server.listen(PORT);
