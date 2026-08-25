@@ -2,7 +2,13 @@
 
 带账号系统、好友系统、战绩记录和实时联机对战的开源网页小游戏。
 
-## 🚀 快速开始
+## 🌐 在线游玩（已部署）
+
+**直接访问：https://thunder-fighter.bonto.run**
+
+把这个网址发给任何人，打开即可登录游玩（无需安装任何东西）。
+
+## 🚀 本地运行
 
 ```bash
 cd D:/zyue/test
@@ -16,7 +22,7 @@ npm start       # 或 node server.js
 
 | UID | 默认昵称 | 密码 |
 |------|---------|------|
-| TF1001 | 猎鹰 | 123456 |
+| TF1001 | 猎鹰 | **710072** |
 | TF1002 | 闪电 | 123456 |
 | TF1003 | 雷霆 | 123456 |
 | TF1004 | 疾风 | 123456 |
@@ -28,7 +34,8 @@ npm start       # 或 node server.js
 | TF1010 | 战神 | 123456 |
 
 - 昵称可在登录后点击「✏️改昵称」自定义
-- UID 固定且全局唯一，密码统一为 `123456`
+- UID 固定且全局唯一
+- 登录时**手动输入密码**（TF1001 的密码是 `710072`，其余是 `123456`）
 
 ## ✨ 功能
 
@@ -48,19 +55,16 @@ npm start       # 或 node server.js
 
 ## ☁️ 部署到线上（免费）
 
-### 方式一：Render（推荐，最省事）
-1. 把本目录推送到 GitHub 仓库
-2. 登录 [render.com](https://render.com) → New → **Blueprint**
-3. 选择仓库，自动读取 `render.yaml`，一键部署
+### 当前部署：Bonto（https://thunder-fighter.bonto.run）
+- 免费 50 小时/月，无需信用卡，支持 Node.js + WebSocket
+- 30 分钟无访问自动休眠，唤醒后即可继续访问
+- 更新代码：修改 `server.js` / `index.html` 后，用 `bonto.sh` 工具重新上传即可（管理令牌已保存在 `bonto_auth.json`）
 
-### 方式二：Railway / Fly.io / Glitch 等
-已内置 `Dockerfile`，任何支持 Docker 的平台直接部署即可。
+### 其它平台（备用）
+- **Render**：登录 [render.com](https://render.com) → New → Blueprint → 选择 GitHub 仓库，读取 `render.yaml` 一键部署（新账号需绑定信用卡验证）
+- **Railway / Fly.io 等**：已内置 `Dockerfile`，支持 Docker 的平台可直接部署
 
-### 部署后
-用部署域名替换本地地址即可，例如 `https://你的域名/`。
-首次登录用上面任一测试账户即可。
-
-> ⚠️ 联机功能依赖 HTTPS（WebRTC 需要安全上下文），Render/Railway 均自动提供。
+> ⚠️ 联机功能依赖 HTTPS（WebRTC 需要安全上下文），Bonto / Render 均自动提供。
 
 ## 📁 文件说明
 
@@ -72,3 +76,5 @@ npm start       # 或 node server.js
 | `package.json` | 依赖与启动脚本 |
 | `render.yaml` | Render 一键部署配置 |
 | `Dockerfile` | Docker 部署配置 |
+| `bonto.sh` | Bonto 平台管理脚本（上传/重启/日志） |
+| `使用说明.md` | 详细使用说明 |
