@@ -151,6 +151,17 @@
   #toast.show { opacity: 1; }
 
   .key-hint { position: absolute; bottom: 10px; left: 16px; color: rgba(180,210,255,.55); font-size: 12px; pointer-events: none; letter-spacing: 1px; }
+
+  .hud-btn {
+    pointer-events: auto;
+    background: rgba(255,255,255,.08);
+    border: 1px solid rgba(120,200,255,.5);
+    color: #dff3ff; border-radius: 14px;
+    padding: 4px 12px; font-size: 12px;
+    cursor: pointer; letter-spacing: 1px;
+    transition: all .15s; flex: none;
+  }
+  .hud-btn:hover { background: rgba(255,80,80,.35); border-color: #ff6b6b; }
 </style>
 </head>
 <body>
@@ -164,6 +175,7 @@
     </div>
     <div id="powerBars"></div>
     <div class="lives" id="lives">❤ ❤ ❤</div>
+    <button class="hud-btn" id="btnHudQuit" title="暂停并退出游戏">退出</button>
   </div>
 
   <!-- 登录 -->
@@ -233,6 +245,14 @@
     <button class="btn ghost" id="btnMenu">返回菜单</button>
   </div>
 
+  <!-- 暂停菜单 -->
+  <div id="pauseMenu" class="screen hidden">
+    <h1 style="font-size:38px">游戏暂停</h1>
+    <p class="muted" id="pauseScore"></p>
+    <button class="btn" id="btnResume">继续游戏</button>
+    <button class="btn ghost" id="btnQuitGame">退出游戏</button>
+  </div>
+
   <!-- 邀请弹窗 -->
   <div id="inviteModal" class="hidden">
     <div id="inviteBox">
@@ -272,6 +292,7 @@
   function showScreen(name) {
     for (const k in screens) screens[k].classList.toggle('hidden', k !== name);
     hud.classList.toggle('hidden', name !== 'game');
+    if (name === 'game') $('pauseMenu').classList.add('hidden');
   }
 
   let toastTimer = null;
@@ -847,8 +868,6 @@
     ctx.restore();
     if (paused && running) {
       ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(0, 0, W, H);
-      ctx.fillStyle = '#fff'; ctx.font = 'bold 34px sans-serif'; ctx.textAlign = 'center';
-      ctx.fillText('暂停中', W / 2, H / 2);
     }
   }
 
@@ -877,11 +896,11 @@
   window.addEventListener('keydown', e => {
     if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
     keys.add(e.key.length === 1 ? e.key.toLowerCase() : e.key);
-    if (e.key === ' ' && running) {
+    if (e.key === ' ' && running && !paused) {
       if (mode === 'solo' || mode === 'host') bomb(0);
       else if (mode === 'guest') Net.send({ t: 'bomb' });
     }
-    if (e.key === 'Escape' && running) paused = !paused;
+    if (e.key === 'Escape' && running) setPaused(!paused);
   });
   window.addEventListener('keyup', e => keys.delete(e.key.length === 1 ? e.key.toLowerCase() : e.key));
   canvas.addEventListener('mousemove', e => {
@@ -891,7 +910,7 @@
     mouse.active = true;
   });
   canvas.addEventListener('mousedown', () => {
-    if (!running) return;
+    if (!running || paused) return;
     if (mode === 'solo' || mode === 'host') bomb(0);
     else if (mode === 'guest') Net.send({ t: 'bomb' });
   });
@@ -1167,6 +1186,29 @@
     loadMenu();
   }
 
+  // 暂停 / 退出
+  function setPaused(v) {
+    if (!running) return;
+    paused = v;
+    $('pauseMenu').classList.toggle('hidden', !v);
+    if (v && game) $('pauseScore').textContent = '当前得分 ' + game.score;
+  }
+
+  function quitGame() {
+    if (!running) return;
+    running = false; paused = false;
+    $('pauseMenu').classList.add('hidden');
+    // 记录当前得分（中途退出也保存战绩）
+    recordScore();
+    // 联机时通知对方本局结束
+    if (mode === 'host') Net.send({ t: 'over', score: game.score });
+    if (mode === 'host' || mode === 'guest') Net.close();
+    mode = 'solo'; game = null;
+    inviteState = null;
+    showScreen('menu');
+    loadMenu();
+  }
+
   // ==================== UI 事件 ====================
   $('btnLogin').addEventListener('click', () => { initAudio(); doLogin(); });
   $('pwdInput').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
@@ -1197,6 +1239,9 @@
     } catch (e) { $('roomStatus').textContent = '复制失败，请手动复制：' + link; }
   });
   $('btnLeave').addEventListener('click', leaveRoom);
+  $('btnResume').addEventListener('click', () => setPaused(false));
+  $('btnQuitGame').addEventListener('click', quitGame);
+  $('btnHudQuit').addEventListener('click', () => { if (running) setPaused(true); });
   $('btnRestart').addEventListener('click', () => {
     if (mode === 'solo') { initGame(1); showScreen('game'); }
     else if (mode === 'host') { initGame(2); Net.send({ t: 'restart' }); showScreen('game'); }
