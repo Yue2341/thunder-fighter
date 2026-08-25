@@ -175,6 +175,7 @@
     </div>
     <div id="powerBars"></div>
     <div class="lives" id="lives">❤ ❤ ❤</div>
+    <button class="hud-btn" id="btnMusic" title="关闭背景音乐">🎵</button>
     <button class="hud-btn" id="btnHudQuit" title="暂停并退出游戏">退出</button>
   </div>
 
@@ -354,6 +355,93 @@
     join() { beep(660, 0.1, 'triangle', 0.2, 200); beep(990, 0.15, 'triangle', 0.2, 200); },
   };
 
+  // ==================== 背景音乐（经典雷霆战机风格，Web Audio 实时合成） ====================
+  const MIDI = n => 440 * Math.pow(2, (n - 69) / 12);
+  let bgmOn = true;
+  let bgmTimer = null;
+  let bgmNextTime = 0;
+  let bgmStep = 0;
+  const BGM_STEP = 60 / 138 / 4; // BPM 138，16 分音符时长
+  // 主旋律（64 步，Am-F-C-G 循环，0=休止）
+  const BGM_MELODY = [
+    69,0,69,0,72,0,69,0,76,0,74,0,72,0,71,0,
+    65,0,65,0,69,0,65,0,72,0,71,0,69,0,67,0,
+    64,0,64,0,67,0,64,0,71,0,69,0,67,0,65,0,
+    62,0,62,0,65,0,62,0,69,0,67,0,65,0,64,0,
+  ];
+  // 贝斯根音（A2 F2 C2 G2，每 2 步一个）
+  const BGM_BASS = [45,41,36,43].map(n => [n,n,n,n,n,n,n,n]).flat();
+  // 鼓点步位
+  const BGM_KICK = [0, 12, 16, 28, 32, 44, 48, 60];
+  const BGM_SNARE = [8, 24, 40, 56];
+
+  function bgmTone(freq, time, dur, type, vol) {
+    if (!actx || !bgmOn) return;
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(vol, time);
+    g.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+    o.connect(g).connect(actx.destination);
+    o.start(time); o.stop(time + dur + 0.02);
+  }
+  function bgmKick(time) {
+    if (!actx || !bgmOn) return;
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(160, time);
+    o.frequency.exponentialRampToValueAtTime(45, time + 0.1);
+    g.gain.setValueAtTime(0.5, time);
+    g.gain.exponentialRampToValueAtTime(0.0001, time + 0.13);
+    o.connect(g).connect(actx.destination);
+    o.start(time); o.stop(time + 0.15);
+  }
+  function bgmNoise(time, dur, vol, hpFreq) {
+    if (!actx || !bgmOn) return;
+    const len = Math.max(1, Math.ceil(actx.sampleRate * dur));
+    const buf = actx.createBuffer(1, len, actx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    const src = actx.createBufferSource();
+    src.buffer = buf;
+    const f = actx.createBiquadFilter();
+    f.type = 'highpass'; f.frequency.value = hpFreq;
+    const g = actx.createGain();
+    g.gain.setValueAtTime(vol, time);
+    g.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+    src.connect(f).connect(g).connect(actx.destination);
+    src.start(time); src.stop(time + dur + 0.02);
+  }
+  function scheduleBGM() {
+    if (!actx) return;
+    while (bgmNextTime < actx.currentTime + 0.12) {
+      const step = bgmStep % 64;
+      const t = bgmNextTime;
+      const m = BGM_MELODY[step];
+      if (m) bgmTone(MIDI(m), t, BGM_STEP * 0.9, 'square', 0.04);
+      if (step % 2 === 0) bgmTone(MIDI(BGM_BASS[step] - 12), t, BGM_STEP * 1.7, 'sawtooth', 0.05);
+      if (BGM_KICK.includes(step)) bgmKick(t);
+      if (BGM_SNARE.includes(step)) bgmNoise(t, 0.1, 0.1, 1800);
+      if (step % 2 === 1) bgmNoise(t, 0.03, 0.025, 6000);
+      bgmNextTime += BGM_STEP;
+      bgmStep++;
+    }
+  }
+  function startBGM() {
+    if (!actx || bgmTimer || !bgmOn) return;
+    bgmNextTime = actx.currentTime + 0.05;
+    bgmStep = 0;
+    bgmTimer = setInterval(scheduleBGM, 25);
+  }
+  function stopBGM() {
+    if (bgmTimer) { clearInterval(bgmTimer); bgmTimer = null; }
+  }
+  function toggleBGM() {
+    bgmOn = !bgmOn;
+    if (bgmOn) { initAudio(); startBGM(); } else stopBGM();
+    const b = $('btnMusic');
+    if (b) { b.textContent = bgmOn ? '🎵' : '🔇'; b.title = bgmOn ? '关闭背景音乐' : '打开背景音乐'; }
+  }
+
   // ==================== 工具 ====================
   const rand = (a, b) => a + Math.random() * (b - a);
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -377,9 +465,9 @@
     }
     update(dt) { this.x += this.vx * dt; this.y += this.vy * dt; this.vx *= 0.98; this.vy *= 0.98; this.life -= dt; }
   }
-  function explode(x, y, color, n = 22, speed = 220) {
+  function explode(x, y, color, n = 22, speed = 220, sound = '') {
     for (let i = 0; i < n; i++) game.particles.push(new Particle(x, y, color, speed, rand(0.25, 0.7), rand(1.5, 4.5)));
-    if (game.events) game.events.push([x, y, color, n]);
+    if (game.events) game.events.push([x, y, color, n, sound]);
   }
 
   class Star {
@@ -443,10 +531,13 @@
       const t = ENEMY_TYPES[type];
       this.x = x !== undefined ? x : rand(25, W - 25);
       this.y = y !== undefined ? y : -30;
-      this.r = t.r; this.hp = t.hp; this.maxHp = t.hp;
+      this.r = t.r;
+      // 随时间增加小兵血量（游戏 20 秒后开始强化，120 秒后达到 +100%）
+      const timeBonus = Math.min(1, Math.max(0, (game.time - 20) / 100));
+      this.hp = this.maxHp = Math.round(t.hp * (1 + timeBonus));
       this.speed = t.speed * rand(0.85, 1.2);
       this.vx = type === 1 ? rand(-60, 60) : 0;
-      this.score = t.score; this.color = t.color;
+      this.score = Math.round(t.score * (1 + timeBonus * 0.5)); this.color = t.color;
       this.shootCd = type >= 1 ? rand(0.8, 1.6) : Infinity;
       this.wobble = rand(0, Math.PI * 2);
       this.dead = false;
@@ -496,7 +587,7 @@
       particles: [], events: [],
       stars: Array.from({ length: 70 }, () => new Star()),
       score: 0, kills: 0,
-      spawnTimer: 0, bossTimer: 30, bossSpawned: false,
+      spawnTimer: 0, nextBossTime: 30, bossSpawned: false,
       time: 0, shake: 0,
     };
     running = true; paused = false;
@@ -530,8 +621,13 @@
   function spawnBoss() {
     if (game.bossSpawned) return;
     game.bossSpawned = true;
+    game.nextBossTime = game.time + 45; // 45 秒后下一波 Boss
     const boss = new Enemy(3);
-    if (game.players.length > 1) boss.hp = boss.maxHp = 90;
+    // Boss 血量随时间递增：第一波 60，之后每波 +70%
+    const wave = Math.floor(game.time / 45) + 1;
+    let hp = Math.round(60 * (1 + (wave - 1) * 0.7));
+    if (game.players.length > 1) hp = Math.round(hp * 1.5);
+    boss.hp = boss.maxHp = hp;
     game.enemies.push(boss);
   }
   function dropPowerUp(x, y) {
@@ -545,7 +641,7 @@
     game.lives--;
     p.power = Math.max(1, p.power - 1);
     p.inv = 2;
-    explode(p.x, p.y, '#ff6b6b', 16, 180);
+    explode(p.x, p.y, '#ff6b6b', 16, 180, 'hit');
     sfx.hit();
     updateHUD();
     if (game.lives <= 0) endGame();
@@ -558,8 +654,11 @@
     game.eBullets = [];
     for (const e of game.enemies) {
       e.hp -= 15;
-      explode(e.x, e.y, '#ffcc00', 10, 180);
-      if (e.hp <= 0) { e.dead = true; addScore(e.score); }
+      explode(e.x, e.y, '#ffcc00', 10, 180, 'boom');
+      if (e.hp <= 0) {
+        e.dead = true; addScore(e.score);
+        if (e.type === 3) game.bossSpawned = false; // Boss 被炸弹击杀后允许下一波
+      }
     }
     for (let i = 0; i < 40; i++) game.particles.push(new Particle(rand(0, W), rand(0, H), '#ffd94d', 500, 0.5, rand(2, 5)));
   }
@@ -580,8 +679,9 @@
   function endGame() {
     if (!running) return;
     running = false;
+    stopBGM();
     sfx.over();
-    explode(game.players[0].x, game.players[0].y, '#ff6b6b', 40, 300);
+    explode(game.players[0].x, game.players[0].y, '#ff6b6b', 40, 300, 'over');
     $('finalScore').textContent = '最终得分 ' + game.score + (mode === 'host' || mode === 'guest' ? '（联机合作）' : '');
     $('btnRestart').style.display = (mode === 'solo' || mode === 'host') ? '' : 'none';
     if (mode === 'host') Net.send({ t: 'over', score: game.score });
@@ -671,7 +771,10 @@
     game.eBullets = s.eBullets.map(b => ({ x: b[0], y: b[1], r: 6 }));
     game.bullets = s.bullets.map(b => ({ x: b[0], y: b[1], vx: b[2], vy: -720, r: 5 }));
     game.powerups = s.powerups.map(p => ({ x: p[0], y: p[1], kind: p[2], r: 13 }));
-    for (const ev of s.events) explode(ev[0], ev[1], ev[2], ev[3], 220);
+    for (const ev of s.events) {
+      explode(ev[0], ev[1], ev[2], ev[3], 220);
+      if (ev[4] && sfx[ev[4]]) sfx[ev[4]]();
+    }
     updateHUD();
     if (!running) { running = true; showScreen('game'); }
   }
@@ -702,7 +805,7 @@
 
     g.spawnTimer -= dt;
     if (g.spawnTimer <= 0) { g.spawnTimer = clamp(0.9 - g.time * 0.02, 0.28, 0.9); spawnEnemy(); }
-    if (g.time > g.bossTimer && !g.bossSpawned) spawnBoss();
+    if (g.time > g.nextBossTime && !g.bossSpawned) spawnBoss();
 
     for (const b of g.bullets) { b.x += b.vx * dt; b.y += b.vy * dt; }
     for (const b of g.eBullets) { b.x += b.vx * dt; b.y += b.vy * dt; }
@@ -723,13 +826,16 @@
         if (e.dead || b.dead) continue;
         if (circleHit(b, e)) {
           b.dead = true; e.hp--;
-          explode(b.x, b.y, '#7ef9ff', 4, 120);
+          explode(b.x, b.y, '#7ef9ff', 4, 120, 'hit');
           if (e.hp <= 0) {
             e.dead = true; g.kills++;
             addScore(e.score);
-            explode(e.x, e.y, e.color, e.type === 3 ? 60 : 18, e.type === 3 ? 350 : 200);
+            explode(e.x, e.y, e.color, e.type === 3 ? 60 : 18, e.type === 3 ? 350 : 200, 'boom');
             sfx.boom();
-            if (e.type === 3) { for (let i = 0; i < 4; i++) dropPowerUp(e.x + rand(-40, 40), e.y + rand(-20, 20)); }
+            if (e.type === 3) {
+              for (let i = 0; i < 4; i++) dropPowerUp(e.x + rand(-40, 40), e.y + rand(-20, 20));
+              g.bossSpawned = false; // Boss 被击杀后允许下一波
+            }
             else if (Math.random() < 0.18) dropPowerUp(e.x, e.y);
           }
           break;
@@ -741,7 +847,7 @@
     for (let i = 0; i < g.players.length; i++) {
       const pl = g.players[i];
       for (const e of g.enemies) {
-        if (!e.dead && circleHit(e, pl)) { e.dead = true; explode(e.x, e.y, e.color, 20, 220); playerHit(i); sfx.boom(); }
+        if (!e.dead && circleHit(e, pl)) { e.dead = true; explode(e.x, e.y, e.color, 20, 220, 'boom'); playerHit(i); sfx.boom(); }
       }
       for (const b of g.eBullets) {
         if (!b.dead && circleHit(b, pl)) { b.dead = true; playerHit(i); }
@@ -757,7 +863,7 @@
           if (p.kind === 'P') pl.power = Math.min(5, pl.power + 1);
           else if (p.kind === 'H') g.lives = Math.min(g.maxLives, g.lives + 1);
           else pl.bombs = Math.min(3, pl.bombs + 1);
-          explode(p.x, p.y, '#ffffff', 12, 150);
+          explode(p.x, p.y, '#ffffff', 12, 150, 'power');
           updateHUD();
           break;
         }
@@ -1122,7 +1228,9 @@
     $('roomStatus').textContent = '正在连接...';
     $('btnCopy').style.display = 'none';
     showScreen('room');
+    initAudio();
     Net.join(code);
+    startBGM();
   }
 
   // ==================== 初始化 Net 回调 ====================
@@ -1165,6 +1273,7 @@
     mode = 'solo';
     initGame(1);
     showScreen('game');
+    startBGM();
   }
   function startManualHost() {
     if (!Net.available()) { toast('⚠ 网络模块加载失败'); return; }
@@ -1177,6 +1286,7 @@
     $('btnCopy').style.display = '';
     showScreen('room');
     Net.host();
+    startBGM();
   }
   function startManualGuest(code) {
     if (!Net.available()) { toast('⚠ 网络模块加载失败'); return; }
@@ -1187,6 +1297,7 @@
     $('btnCopy').style.display = 'none';
     showScreen('room');
     Net.join(code);
+    startBGM();
   }
 
   function leaveRoom() {
@@ -1194,6 +1305,7 @@
     running = false; paused = false;
     mode = 'solo'; game = null;
     inviteState = null;
+    stopBGM();
     showScreen('menu');
     loadMenu();
   }
@@ -1210,6 +1322,7 @@
     if (!running) return;
     running = false; paused = false;
     $('pauseMenu').classList.add('hidden');
+    stopBGM();
     // 记录当前得分（中途退出也保存战绩）
     recordScore();
     // 联机时通知对方本局结束
@@ -1263,6 +1376,7 @@
   $('btnResume').addEventListener('click', () => setPaused(false));
   $('btnQuitGame').addEventListener('click', quitGame);
   $('btnHudQuit').addEventListener('click', () => { if (running) setPaused(true); });
+  $('btnMusic').addEventListener('click', toggleBGM);
   $('btnRestart').addEventListener('click', () => {
     if (mode === 'solo') { initGame(1); showScreen('game'); }
     else if (mode === 'host') { initGame(2); Net.send({ t: 'restart' }); showScreen('game'); }
