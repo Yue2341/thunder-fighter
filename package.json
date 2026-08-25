@@ -1,0 +1,14 @@
+{
+  "name": "thunder-fighter",
+  "version": "2.0.0",
+  "private": true,
+  "description": "雷霆战机 - 2D 飞行射击联机游戏",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "ws": "^8.18.0"
+  }
+}
