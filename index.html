@@ -206,6 +206,10 @@
       <button class="btn" id="btnSolo">单人游戏</button>
       <button class="btn" id="btnHost">开房间游玩</button>
     </div>
+    <div class="add-row" style="margin-top:10px">
+      <input type="text" id="joinRoomInput" placeholder="输入房间码加入（如 TABC1）" maxlength="6" autocomplete="off">
+      <button class="btn small" id="btnJoinRoom">加入房间</button>
+    </div>
 
     <div class="panel" id="friendPanel">
       <h3>👥 好友 <span class="muted" id="friendCount"></span></h3>
@@ -950,6 +954,11 @@
       connectWS();
       await loadMenu();
       showScreen('menu');
+      // 打开邀请链接时，登录后自动加入房间
+      if (window._pendingRoom) {
+        setTimeout(() => { initAudio(); startManualGuest(window._pendingRoom); }, 400);
+        window._pendingRoom = null;
+      }
     } catch (e) {
       $('loginStatus').textContent = '⚠ ' + e.message;
     }
@@ -1146,8 +1155,9 @@
   };
   Net.onError = e => {
     if (e.type === 'peer-unavailable') {
-      toast('⚠ 未找到该房间');
+      toast('⚠ 未找到该房间，请确认房间码');
       showScreen('menu');
+      loadMenu();
     }
   };
 
@@ -1173,6 +1183,9 @@
     if (!Net.available()) { toast('⚠ 网络模块加载失败'); return; }
     mode = 'guest';
     initView();
+    $('roomHint').textContent = '正在连接房间...';
+    $('roomStatus').textContent = '正在连接 ' + code + ' ...';
+    $('btnCopy').style.display = 'none';
     showScreen('room');
     Net.join(code);
   }
@@ -1216,6 +1229,15 @@
   $('btnEditName').addEventListener('click', editName);
   $('btnSolo').addEventListener('click', () => { initAudio(); startSolo(); });
   $('btnHost').addEventListener('click', () => { initAudio(); startManualHost(); });
+  $('btnJoinRoom').addEventListener('click', () => {
+    initAudio();
+    const code = $('joinRoomInput').value.trim().toUpperCase();
+    if (!code) { toast('请输入房间码'); return; }
+    startManualGuest(code);
+  });
+  $('joinRoomInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') $('btnJoinRoom').click();
+  });
   $('btnAddFriend').addEventListener('click', addFriend);
   $('addFriendInput').addEventListener('keydown', e => { if (e.key === 'Enter') addFriend(); });
   $('btnAccept').addEventListener('click', () => {
@@ -1275,7 +1297,8 @@
   // ==================== 启动 ====================
   async function bootstrap() {
     loadAccounts();
-    // URL 带 room 参数：登录后可提示
+    // URL 带 ?room= 房间码：登录后自动加入
+    const roomParam = (new URLSearchParams(location.search).get('room') || '').trim().toUpperCase();
     if (token) {
       try {
         const data = await api('/api/me');
@@ -1283,13 +1306,25 @@
         connectWS();
         await loadMenu();
         showScreen('menu');
+        if (roomParam) {
+          window._pendingRoom = roomParam;
+          setTimeout(() => { initAudio(); startManualGuest(roomParam); }, 500);
+        }
       } catch (e) {
         token = null;
         localStorage.removeItem('thunder.token');
         showScreen('login');
+        if (roomParam) {
+          window._pendingRoom = roomParam;
+          $('loginStatus').textContent = '登录后自动加入房间 ' + roomParam;
+        }
       }
     } else {
       showScreen('login');
+      if (roomParam) {
+        window._pendingRoom = roomParam;
+        $('loginStatus').textContent = '登录后自动加入房间 ' + roomParam;
+      }
     }
   }
 
