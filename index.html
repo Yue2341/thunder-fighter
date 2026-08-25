@@ -677,10 +677,7 @@
   }
   function initView() {
     game = {
-      players: [
-        { x: W / 2, y: H - 90, power: 1, inv: 0, bombs: 2, r: 16, color: PLAYER_COLORS[0] },
-        { x: W / 2 + 40, y: H - 90, power: 1, inv: 0, bombs: 2, r: 16, color: PLAYER_COLORS[1] },
-      ],
+      players: [new Player(0), new Player(1)],
       lives: 5, maxLives: 5, bullets: [], eBullets: [], enemies: [], powerups: [],
       particles: [], events: [], stars: Array.from({ length: 70 }, () => new Star()),
       score: 0, shake: 0,
@@ -881,11 +878,13 @@
     const dt = Math.min(0.033, (ts - last) / 1000 || 0.016);
     last = ts;
     if (running && !paused && (mode === 'solo' || mode === 'host')) update(dt);
-    if (running && !paused && mode === 'guest' && game) {
+    if (running && !paused && mode === 'guest' && game && game.players && game.players[1]) {
       const self = game.players[1];
-      self.applyInput(dt);
-      Net.inputTimer = (Net.inputTimer || 0) - dt;
-      if (Net.inputTimer <= 0) { Net.inputTimer = 0.033; Net.send({ t: 'input', x: self.x, y: self.y }); }
+      if (self && typeof self.applyInput === 'function') {
+        self.applyInput(dt);
+        Net.inputTimer = (Net.inputTimer || 0) - dt;
+        if (Net.inputTimer <= 0) { Net.inputTimer = 0.033; Net.send({ t: 'input', x: self.x, y: self.y }); }
+      }
       for (const s of game.stars) s.update(dt);
       for (const p of game.particles) p.update(dt);
       game.particles = game.particles.filter(p => p.life > 0);
