@@ -262,7 +262,7 @@
       lives: playerCount === 1 ? 3 : 5,
       maxLives: playerCount === 1 ? 3 : 5,
       bullets: [], eBullets: [], enemies: [], powerups: [],
-      particles: [], events: [], texts: [],
+      particles: [], events: [], texts: [], rings: [],
       stars: Array.from({ length: 70 }, () => new Star()),
       score: 0, kills: 0,
       combo: 0, comboTimer: 0,   // 连击：2 秒内连续击杀累计，中断归零
@@ -324,6 +324,10 @@
   function spawnText(x, y, text, color) {
     game.texts.push({ x, y, text, color: color || '#ffd94d', life: 0.8, maxLife: 0.8 });
   }
+  // 扩散冲击波环（升级/击杀 Boss/炸弹时的仪式感反馈）
+  function spawnRing(x, y, color, maxR) {
+    game.rings.push({ x, y, r: 6, maxR: maxR || 50, life: 0.45, maxLife: 0.45, color: color || '#ffffff' });
+  }
   function comboMult() { return game.combo >= 20 ? 3 : game.combo >= 8 ? 2 : 1; }
   // 统一击杀奖励：连击计数 + 倍率得分 + 飘字 + 顿帧 + 分级震屏 + 升调音效
   function killReward(e) {
@@ -368,6 +372,7 @@
       }
     }
     for (let i = 0; i < 40; i++) game.particles.push(new Particle(rand(0, W), rand(0, H), '#ffd94d', 500, 0.5, rand(2, 5)));
+    spawnRing(p.x, p.y, '#ffd94d', 220);
   }
 
   function addScore(n) {
@@ -436,6 +441,7 @@
     for (const p of g.powerups) p.update(dt);
     for (const s of g.stars) s.update(dt);
     for (const p of g.particles) p.update(dt);
+    for (const rg of g.rings) { rg.r += (rg.maxR - rg.r) * 10 * dt + 40 * dt; rg.life -= dt; }
     for (const tx of g.texts) { tx.y -= 45 * dt; tx.life -= dt; }
 
     g.bullets = g.bullets.filter(b => b.y > -20 && b.x > -20 && b.x < W + 20);
@@ -444,6 +450,7 @@
     g.powerups = g.powerups.filter(p => !p.dead);
     g.particles = g.particles.filter(p => p.life > 0);
     g.texts = g.texts.filter(tx => tx.life > 0);
+    g.rings = g.rings.filter(rg => rg.life > 0);
 
     for (const b of g.bullets) {
       if (b.dead) continue;
@@ -459,6 +466,7 @@
             explode(e.x, e.y, e.color, e.type === 3 ? 60 : 18, e.type === 3 ? 350 : 200, 'boom');
             killReward(e);
             if (e.type === 3) {
+              spawnRing(e.x, e.y, '#ff8899', 160); // Boss 死亡大冲击波
               for (let i = 0; i < 4; i++) dropPowerUp(e.x + rand(-40, 40), e.y + rand(-20, 20));
               g.bossSpawned = false; // Boss 被击杀后允许下一波
             }
@@ -486,7 +494,7 @@
         const pl = g.players[i];
         if (!p.dead && circleHit(p, pl)) {
           p.dead = true; sfx.power();
-          if (p.kind === 'P') pl.power = Math.min(5, pl.power + 1);
+          if (p.kind === 'P') { pl.power = Math.min(5, pl.power + 1); spawnRing(pl.x, pl.y, 'rgb(' + POWER_AURA[pl.power] + ')', 64); }
           else if (p.kind === 'H') g.lives = Math.min(g.maxLives, g.lives + 1);
           else pl.bombs = Math.min(3, pl.bombs + 1);
           explode(p.x, p.y, '#ffffff', 12, 150, 'power');
@@ -506,12 +514,43 @@
   function drawPlayer(p) {
     if (!p) return;
     if (p.inv > 0 && Math.floor(p.inv * 12) % 2 === 0) return;
+    const t = game ? game.time : 0;
+    const pw = Math.min(5, p.power || 1);
+    const ac = POWER_AURA[pw];
+    // ── 实时火力光环：等级越高越亮越大，带呼吸脉动 ──
+    const ar = 20 + pw * 6 + Math.sin(t * 8) * 2;
+    const g = ctx.createRadialGradient(p.x, p.y, 3, p.x, p.y, ar);
+    g.addColorStop(0, 'rgba(' + ac + ',' + (0.16 + pw * 0.055).toFixed(3) + ')');
+    g.addColorStop(1, 'rgba(' + ac + ',0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(p.x, p.y, ar, 0, Math.PI * 2); ctx.fill();
+    // 4 级：淡金外环；5 级：旋转能量环（仪式感）
+    if (pw >= 5) {
+      ctx.save();
+      ctx.translate(p.x, p.y); ctx.rotate(t * 2.4);
+      ctx.strokeStyle = 'rgba(255,240,176,.9)'; ctx.lineWidth = 2;
+      ctx.setLineDash([10, 7]);
+      ctx.beginPath(); ctx.arc(0, 0, 30, 0, Math.PI * 2); ctx.stroke();
+      ctx.rotate(-t * 4.8);
+      ctx.strokeStyle = 'rgba(255,240,176,.4)'; ctx.lineWidth = 1;
+      ctx.setLineDash([4, 10]);
+      ctx.beginPath(); ctx.arc(0, 0, 36, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    } else if (pw >= 4) {
+      ctx.strokeStyle = 'rgba(255,217,77,.35)'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 27, 0, Math.PI * 2); ctx.stroke();
+    }
+    // 引擎主焰随火力变长变亮
+    const fl = 9 + pw * 3.5 + Math.random() * 3;
+    const fg = ctx.createLinearGradient(p.x, p.y + 14, p.x, p.y + 14 + fl);
+    fg.addColorStop(0, pw >= 4 ? '#fff2b0' : '#8fd8ff');
+    fg.addColorStop(1, 'rgba(' + ac + ',0)');
+    ctx.fillStyle = fg;
+    ctx.beginPath(); ctx.moveTo(p.x - 3.5, p.y + 14); ctx.quadraticCurveTo(p.x, p.y + 14 + fl * 1.25, p.x + 3.5, p.y + 14); ctx.closePath(); ctx.fill();
+    // ── 机身 ──
     ctx.save();
     ctx.translate(p.x, p.y);
-    const g = ctx.createRadialGradient(0, 0, 2, 0, 0, 34);
-    g.addColorStop(0, p.color + '66'); g.addColorStop(1, p.color + '00');
-    ctx.fillStyle = g;
-    ctx.beginPath(); ctx.arc(0, 0, 34, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = p.color; ctx.strokeStyle = '#eaf6ff'; ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(0, -22); ctx.lineTo(5, -8); ctx.lineTo(16, 6); ctx.lineTo(10, 14);
@@ -521,38 +560,41 @@
     ctx.fillStyle = '#eaf6ff';
     ctx.beginPath(); ctx.ellipse(0, -6, 3, 7, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#ff5544'; ctx.fillRect(-15, 4, 3, 4); ctx.fillRect(12, 4, 3, 4);
+    // 火力挂件：3 级+ 双侧翼炮；5 级 炮口炽亮
+    if (pw >= 3) {
+      ctx.fillStyle = '#dbeeff'; ctx.fillRect(-19, -2, 3, 8); ctx.fillRect(16, -2, 3, 8);
+      if (pw >= 5) {
+        ctx.fillStyle = '#fff2b0'; ctx.fillRect(-19.5, 5, 4, 3); ctx.fillRect(15.5, 5, 4, 3);
+      }
+    }
     ctx.restore();
   }
   function drawEnemy(e) {
-    ctx.save(); ctx.translate(e.x, e.y);
+    const set = ENEMY_SPRITES[e.type] || ENEMY_SPRITES[0];
+    const spr = set[Math.floor((game ? game.time : 0) * 8 + (e.wobble || 0)) % set.length];
+    ctx.drawImage(spr.img, e.x - spr.w / 2, e.y - spr.h / 2, spr.w, spr.h);
     if (e.type === 3) {
-      ctx.fillStyle = '#7a1f2b'; ctx.strokeStyle = '#ff8899'; ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(0, 40); ctx.lineTo(40, -20); ctx.lineTo(22, -34);
-      ctx.lineTo(0, -12); ctx.lineTo(-22, -34); ctx.lineTo(-40, -20);
-      ctx.closePath(); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#ff3344'; ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(-40, -46, 80, 6);
-      ctx.fillStyle = '#ff4455'; ctx.fillRect(-40, -46, 80 * (e.hp / e.maxHp), 6);
-    } else {
-      ctx.fillStyle = e.color || ENEMY_TYPES[e.type].color;
-      ctx.strokeStyle = '#ffd9e0'; ctx.lineWidth = 1.2;
-      if (e.type === 0) {
-        ctx.beginPath(); ctx.moveTo(0, 16); ctx.lineTo(12, -6); ctx.lineTo(6, -14); ctx.lineTo(0, -8); ctx.lineTo(-6, -14); ctx.lineTo(-12, -6); ctx.closePath(); ctx.fill(); ctx.stroke();
-      } else if (e.type === 1) {
-        ctx.beginPath(); ctx.moveTo(0, 20); ctx.lineTo(15, -8); ctx.lineTo(9, -6); ctx.lineTo(4, -16); ctx.lineTo(-4, -16); ctx.lineTo(-9, -6); ctx.lineTo(-15, -8); ctx.closePath(); ctx.fill(); ctx.stroke();
-        ctx.fillStyle = '#ffdd44'; ctx.beginPath(); ctx.arc(0, 0, 4, 0, Math.PI * 2); ctx.fill();
-      } else {
-        ctx.beginPath(); ctx.moveTo(0, 24); ctx.lineTo(18, 6); ctx.lineTo(14, -14); ctx.lineTo(0, -8); ctx.lineTo(-14, -14); ctx.lineTo(-18, 6); ctx.closePath(); ctx.fill(); ctx.stroke();
-      }
+      // Boss 核心反应堆脉冲 + 压迫感光晕（逐帧呼吸）
+      const t = game ? game.time : 0;
+      const pulse = 0.75 + Math.sin(t * 5 + (e.wobble || 0)) * 0.25;
+      const cg = ctx.createRadialGradient(e.x, e.y + 8, 2, e.x, e.y + 8, 30 * pulse);
+      cg.addColorStop(0, 'rgba(255,68,85,' + (0.55 * pulse).toFixed(3) + ')');
+      cg.addColorStop(1, 'rgba(255,68,85,0)');
+      ctx.fillStyle = cg;
+      ctx.beginPath(); ctx.arc(e.x, e.y + 8, 30 * pulse, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#ff3344'; ctx.beginPath(); ctx.arc(e.x, e.y + 8, 10, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#ffd0d4'; ctx.beginPath(); ctx.arc(e.x, e.y + 8, 4.5 * pulse + 1, 0, Math.PI * 2); ctx.fill();
+      // 血条（加描边更有质感）
+      ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(e.x - 45, e.y - 64, 90, 7);
+      ctx.fillStyle = '#ff4455'; ctx.fillRect(e.x - 44, e.y - 63, 88 * Math.max(0, e.hp / e.maxHp), 5);
+      ctx.strokeStyle = 'rgba(255,136,153,.8)'; ctx.lineWidth = 1; ctx.strokeRect(e.x - 45, e.y - 64, 90, 7);
     }
-      if (e.hp !== undefined && e.flash > 0) {
-        ctx.globalAlpha = Math.min(1, e.flash / 0.07) * 0.85;
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath(); ctx.arc(0, 0, e.r + 2, 0, Math.PI * 2); ctx.fill();
-        ctx.globalAlpha = 1;
-      }
-      ctx.restore();
+    // 受击白闪：整幅白色剪影叠加
+    if (e.flash > 0) {
+      ctx.globalAlpha = Math.min(1, e.flash / 0.07) * 0.9;
+      ctx.drawImage(spr.flash, e.x - spr.w / 2, e.y - spr.h / 2, spr.w, spr.h);
+      ctx.globalAlpha = 1;
+    }
   }
   function drawBullet(b) {
     const g = ctx.createLinearGradient(b.x, b.y - 10, b.x, b.y + 6);
@@ -601,6 +643,12 @@
         const a = clamp(p.life / p.maxLife, 0, 1);
         ctx.globalAlpha = a; ctx.fillStyle = p.color;
         ctx.beginPath(); ctx.arc(p.x, p.y, p.size * a, 0, Math.PI * 2); ctx.fill();
+      }
+      // 冲击波环
+      for (const rg of game.rings) {
+        const a = clamp(rg.life / rg.maxLife, 0, 1);
+        ctx.globalAlpha = a * 0.9; ctx.strokeStyle = rg.color; ctx.lineWidth = 2 + 2 * a;
+        ctx.beginPath(); ctx.arc(rg.x, rg.y, rg.r, 0, Math.PI * 2); ctx.stroke();
       }
       ctx.globalAlpha = 1;
       // 得分飘字

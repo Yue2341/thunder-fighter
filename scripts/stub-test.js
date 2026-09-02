@@ -154,6 +154,21 @@ const snap = sandbox.snapshot();
 assert('快照含 kills（房客击落数修复）', snap && typeof snap.kills === 'number' && snap.kills > 0, JSON.stringify(snap && { kills: snap.kills, combo: snap.combo }));
 assert('快照含 combo', snap && typeof snap.combo === 'number');
 
+console.log('▶ 视觉升级（精灵图/火力光环/冲击波）');
+const drawImgCount = ctxCalls().filter(c => c[0] === 'drawImage').length;
+assert('敌机精灵图渲染（drawImage 大量出现）', drawImgCount > 100, 'drawImage=' + drawImgCount);
+// 强制满级火力 → 应出现旋转能量环（setLineDash）
+const g5 = getGame(); if (g5) g5.players[0].power = 5;
+const dashBefore = ctxCalls().filter(c => c[0] === 'setLineDash').length;
+for (let i = 0; i < 30; i++) { t += 16.7; const cb = rafQueue[rafQueue.length - 1]; rafQueue.length = 0; cb(t); }
+assert('满级旋转能量环渲染', ctxCalls().filter(c => c[0] === 'setLineDash').length > dashBefore);
+// 冲击波环
+sandbox.spawnRing(240, 300, '#ffffff', 100);
+const strokeBefore = ctxCalls().filter(c => c[0] === 'stroke').length;
+for (let i = 0; i < 10; i++) { t += 16.7; const cb = rafQueue[rafQueue.length - 1]; rafQueue.length = 0; cb(t); }
+assert('冲击波环渲染', ctxCalls().filter(c => c[0] === 'stroke').length > strokeBefore);
+if (g5) g5.players[0].power = 1; // 恢复
+
 console.log('▶ 输入与触屏');
 const kd = winHandlers['keydown'] && winHandlers['keydown'][0];
 assert('键盘监听已注册', typeof kd === 'function');

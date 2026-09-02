@@ -96,8 +96,8 @@
     game = {
       players: [new Player(0), new Player(1)],
       lives: 5, maxLives: 5, bullets: [], eBullets: [], enemies: [], powerups: [],
-      particles: [], events: [], texts: [], stars: Array.from({ length: 70 }, () => new Star()),
-      score: 0, kills: 0, combo: 0, comboTimer: 0, hitStop: 0, banner: null,
+      particles: [], events: [], texts: [], rings: [], stars: Array.from({ length: 70 }, () => new Star()),
+      score: 0, kills: 0, combo: 0, comboTimer: 0, hitStop: 0, banner: null, time: 0,
       shake: 0,
     };
     updateHUD();

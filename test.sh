@@ -14,7 +14,7 @@ check() { # name expected actual
 }
 
 echo "▶ [1/2] 前端桩测试"
-if node scripts/stub-test.js game.js net.js ui.js; then
+if node scripts/stub-test.js sprites.js game.js net.js ui.js; then
   pass=$((pass+1))
 else
   fail=$((fail+1)); echo "  ❌ 前端桩测试未通过"

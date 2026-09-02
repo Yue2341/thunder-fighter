@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>雷霆战机 · 素材预览与导出</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #04070f; color: #cfe8ff; font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; padding: 24px; }
+  h1 { font-size: 24px; color: #8be9ff; letter-spacing: 3px; margin-bottom: 4px; }
+  p.sub { color: #7fb0e0; font-size: 13px; margin-bottom: 20px; }
+  h2 { font-size: 16px; color: #ffd94d; margin: 22px 0 10px; letter-spacing: 2px; }
+  .grid { display: flex; flex-wrap: wrap; gap: 16px; }
+  .card {
+    background: repeating-conic-gradient(#0a1220 0% 25%, #0d1626 0% 50%) 0 0/20px 20px;
+    border: 1px solid #1a4a8a; border-radius: 10px; padding: 12px; text-align: center;
+  }
+  .card canvas { image-rendering: auto; display: block; margin: 0 auto 8px; }
+  .card .nm { font-size: 13px; color: #dff3ff; }
+  .card .info { font-size: 11px; color: #6fa8d8; margin: 2px 0 8px; }
+  .card a { display: inline-block; padding: 4px 12px; font-size: 12px; color: #8be9ff; border: 1px solid #1a5a9a; border-radius: 12px; text-decoration: none; }
+  .card a:hover { background: rgba(64,196,255,.15); }
+  .anim canvas { animation: none; }
+</style>
+</head>
+<body>
+<h1>敌对模型素材库</h1>
+<p class="sub">以下全部为离屏 Canvas 实时预渲染的矢量精灵（2x 超采样），游戏内直接使用同一份 sprites.js；点「下载 PNG」可导出素材图。</p>
+
+<h2>👾 敌方小兵（双帧尾焰动画，左/右交替）</h2>
+<div class="grid" id="enemies"></div>
+
+<h2>👾 Boss 旗舰「毁灭者」（核心反应堆呼吸脉冲）</h2>
+<div class="grid" id="boss"></div>
+
+<h2>⚡ 我方战机 · 实时火力升级光环（1~5 级）</h2>
+<div class="grid" id="powers"></div>
+
+<script src="sprites.js"></script>
+<script>
+(() => {
+  const grid = (id, fn) => {
+    const el = document.getElementById(id);
+    fn(el);
+  };
+  const card = (parent, canvas, name, info) => {
+    const d = document.createElement('div');
+    d.className = 'card';
+    d.appendChild(canvas);
+    const nm = document.createElement('div'); nm.className = 'nm'; nm.textContent = name;
+    const inf = document.createElement('div'); inf.className = 'info'; inf.textContent = info;
+    const a = document.createElement('a'); a.textContent = '⬇ 下载 PNG';
+    a.href = canvas.toDataURL('image/png'); a.download = name.replace(/\s+/g, '_') + '.png';
+    d.appendChild(nm); d.appendChild(inf); d.appendChild(a);
+    parent.appendChild(d);
+  };
+  const renderSprite = (spr, scale, t) => {
+    const c = document.createElement('canvas');
+    c.width = spr.w * scale; c.height = spr.h * scale;
+    const x = c.getContext('2d');
+    x.scale(scale, scale);
+    x.drawImage(spr.img, 0, 0, spr.w, spr.h);
+    if (spr.type === 3) { // Boss 核心脉冲
+      const pulse = 0.75 + Math.sin(t * 5) * 0.25;
+      const cg = x.createRadialGradient(spr.w / 2, spr.h / 2 + 8, 2, spr.w / 2, spr.h / 2 + 8, 30 * pulse);
+      cg.addColorStop(0, 'rgba(255,68,85,' + (0.55 * pulse).toFixed(3) + ')');
+      cg.addColorStop(1, 'rgba(255,68,85,0)');
+      x.fillStyle = cg; x.beginPath(); x.arc(spr.w / 2, spr.h / 2 + 8, 30 * pulse, 0, Math.PI * 2); x.fill();
+      x.fillStyle = '#ff3344'; x.beginPath(); x.arc(spr.w / 2, spr.h / 2 + 8, 10, 0, Math.PI * 2); x.fill();
+      x.fillStyle = '#ffd0d4'; x.beginPath(); x.arc(spr.w / 2, spr.h / 2 + 8, 4.5 * pulse + 1, 0, Math.PI * 2); x.fill();
+    }
+    return c;
+  };
+
+  const NAMES = ['🔴 蜂型小兵', '🟣 炮艇', '🟠 重甲轰炸机', '👾 Boss 旗舰·毁灭者'];
+  grid('enemies', el => {
+    for (let type = 0; type < 3; type++) {
+      for (let f = 0; f < 2; f++) {
+        card(el, renderSprite(ENEMY_SPRITES[type][f], 2.4), NAMES[type] + (f ? ' · 帧2' : ' · 帧1'),
+          '显示 ' + ENEMY_SPRITES[type][f].w + '×' + ENEMY_SPRITES[type][f].h + '（2x 超采样）· 碰撞半径 ' + [14, 17, 20][type]);
+      }
+    }
+  });
+  grid('boss', el => {
+    for (let f = 0; f < 2; f++) {
+      card(el, renderSprite(ENEMY_SPRITES[3][f], 1.7), NAMES[3] + (f ? ' · 帧2' : ' · 帧1'),
+        '显示 150×130（2x 超采样）· 碰撞半径 34 · 核心脉冲为运行时叠加');
+    }
+  });
+
+  // 我方火力光环（复刻 drawPlayer 的光环层）
+  const shipPath = (x) => {
+    x.beginPath();
+    x.moveTo(0, -22); x.lineTo(5, -8); x.lineTo(16, 6); x.lineTo(10, 14);
+    x.lineTo(5, 10); x.lineTo(0, 16); x.lineTo(-5, 10); x.lineTo(-10, 14);
+    x.lineTo(-16, 6); x.lineTo(-5, -8); x.closePath();
+  };
+  grid('powers', el => {
+    for (let pw = 1; pw <= 5; pw++) {
+      const S = 2.6, R = 42;
+      const c = document.createElement('canvas');
+      c.width = R * 2 * S; c.height = R * 2 * S;
+      const x = c.getContext('2d');
+      x.scale(S, S); x.translate(R, R);
+      const t = 0.4, ac = POWER_AURA[pw];
+      const ar = 20 + pw * 6 + Math.sin(t * 8) * 2;
+      const g = x.createRadialGradient(0, 0, 3, 0, 0, ar);
+      g.addColorStop(0, 'rgba(' + ac + ',' + (0.16 + pw * 0.055).toFixed(3) + ')');
+      g.addColorStop(1, 'rgba(' + ac + ',0)');
+      x.fillStyle = g; x.beginPath(); x.arc(0, 0, ar, 0, Math.PI * 2); x.fill();
+      if (pw >= 5) {
+        x.save(); x.rotate(0.9);
+        x.strokeStyle = 'rgba(255,240,176,.9)'; x.lineWidth = 2; x.setLineDash([10, 7]);
+        x.beginPath(); x.arc(0, 0, 30, 0, Math.PI * 2); x.stroke();
+        x.restore();
+      } else if (pw >= 4) {
+        x.strokeStyle = 'rgba(255,217,77,.35)'; x.lineWidth = 1.5;
+        x.beginPath(); x.arc(0, 0, 27, 0, Math.PI * 2); x.stroke();
+      }
+      const fl = 9 + pw * 3.5;
+      const fg = x.createLinearGradient(0, 14, 0, 14 + fl);
+      fg.addColorStop(0, pw >= 4 ? '#fff2b0' : '#8fd8ff');
+      fg.addColorStop(1, 'rgba(' + ac + ',0)');
+      x.fillStyle = fg;
+      x.beginPath(); x.moveTo(-3.5, 14); x.quadraticCurveTo(0, 14 + fl * 1.25, 3.5, 14); x.closePath(); x.fill();
+      x.fillStyle = '#4db8ff'; x.strokeStyle = '#eaf6ff'; x.lineWidth = 1.5;
+      shipPath(x); x.fill(); x.stroke();
+      x.fillStyle = '#eaf6ff'; x.beginPath(); x.ellipse(0, -6, 3, 7, 0, 0, Math.PI * 2); x.fill();
+      x.fillStyle = '#ff5544'; x.fillRect(-15, 4, 3, 4); x.fillRect(12, 4, 3, 4);
+      if (pw >= 3) {
+        x.fillStyle = '#dbeeff'; x.fillRect(-19, -2, 3, 8); x.fillRect(16, -2, 3, 8);
+        if (pw >= 5) { x.fillStyle = '#fff2b0'; x.fillRect(-19.5, 5, 4, 3); x.fillRect(15.5, 5, 4, 3); }
+      }
+      card(el, c, 'Lv.' + pw + ' 火力形态', '光环 ' + ac + ' · 半径 ' + ar.toFixed(0) + (pw >= 5 ? ' · 旋转能量环' : pw >= 4 ? ' · 金色外环' : pw >= 3 ? ' · 双侧翼炮' : ''));
+    }
+  });
+})();
+</script>
+</body>
+</html>
