@@ -49,13 +49,15 @@ function save() {
 
 let db = load();
 // 合并预设账户（防止重复 / 缺失，并同步密码）；密码一律以 scrypt 哈希存储
+let migrated = false;
 for (const a of PRESET_ACCOUNTS) {
   const existing = db.accounts.find(x => x.uid === a.uid);
   if (existing) {
     existing.passwordHash = hashPw(a.password); // 密码是系统固定凭证，始终以预设为准
-    delete existing.password;                    // 迁移：移除旧明文字段
+    if (existing.password !== undefined) { delete existing.password; migrated = true; } // 旧明文迁移
   } else {
     db.accounts.push({ uid: a.uid, name: a.name, passwordHash: hashPw(a.password) });
+    migrated = true;
   }
 }
 if (!db.scores) db.scores = {};
@@ -64,7 +66,7 @@ for (const a of db.accounts) {
   if (!db.scores[a.uid]) db.scores[a.uid] = [];
   if (!db.friends[a.uid]) db.friends[a.uid] = [];
 }
-save(); // 立即落盘（迁移旧明文密码为哈希 / 同步预设账户）
+if (migrated) save(); // ⚠ 仅在数据格式实际变化时落盘：启动时无条件写盘会触发线上 nodemon 重启循环
 
 const sessions = new Map(); // token -> uid
 const wsClients = new Map(); // uid -> WebSocket
