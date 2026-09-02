@@ -49,16 +49,28 @@ npm start       # 或 node server.js
 
 ## 🎮 操作
 
-- 鼠标 / 方向键 / WASD 移动战机
-- 自动开火，空格或鼠标点击释放炸弹
+- 鼠标 / 方向键 / WASD 移动战机；**手机拖动屏幕也可移动**
+- 自动开火，空格 / 鼠标点击释放炸弹；**手机双指点按或 💣 按钮**
 - ESC 暂停
+
+## 🎯 玩法亮点
+
+- **连击 Combo**：2 秒内连续击杀累计连击，≥8 得分 x2、≥20 得分 x3，音效随连击升调
+- **打击感**：命中白闪、击杀顿帧、分级震屏、得分飘字
+- **Boss 警示**：Boss 出场前全屏 WARNING 横幅，多波递增难度
+
+## ✅ 测试
+
+```bash
+npm test   # 前端桩测试（Node 模拟浏览器跑完整游戏逻辑）+ 后端 API 冒烟
+```
 
 ## ☁️ 部署到线上（免费）
 
 ### 当前部署：Bonto（https://thunder-fighter.bonto.run）
 - 免费 50 小时/月，无需信用卡，支持 Node.js + WebSocket
 - 30 分钟无访问自动休眠，唤醒后即可继续访问
-- 更新代码：修改 `server.js` / `index.html` 后，用 `bonto.sh` 工具重新上传即可（管理令牌已保存在 `bonto_auth.json`）
+- 更新代码：修改后先 `npm test`，再用 `bonto.sh` 重新上传对应文件（前端已拆分为 index.html/game.js/net.js/ui.js 四个文件，改动哪个传哪个；管理令牌在 `bonto_auth.json`）
 
 ### 其它平台（备用）
 - **Render**：登录 [render.com](https://render.com) → New → Blueprint → 选择 GitHub 仓库，读取 `render.yaml` 一键部署（新账号需绑定信用卡验证）
@@ -70,9 +82,13 @@ npm start       # 或 node server.js
 
 | 文件 | 说明 |
 |------|------|
-| `server.js` | Node.js 后端（登录/好友/战绩/在线状态/邀请信令） |
-| `index.html` | 前端（游戏引擎 + UI，单文件） |
-| `data.json` | 运行时自动生成，存储昵称/战绩/好友关系 |
+| `server.js` | Node.js 后端（登录/好友/战绩/在线状态/邀请信令，密码 scrypt 哈希存储） |
+| `index.html` | 前端 UI 骨架 + 样式 |
+| `game.js` | 游戏引擎（实体/逻辑/打击感/渲染/输入含触屏） |
+| `net.js` | 联机（PeerJS P2P 快照同步 + WebSocket 信令） |
+| `ui.js` | 界面与社交流程（登录/菜单/好友/邀请） |
+| `test.sh` / `scripts/stub-test.js` | 一键冒烟测试 |
+| `data.json` | 运行时自动生成，存储昵称/战绩/好友关系（密码仅存哈希） |
 | `package.json` | 依赖与启动脚本 |
 | `render.yaml` | Render 一键部署配置 |
 | `Dockerfile` | Docker 部署配置 |
