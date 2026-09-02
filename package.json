@@ -8,6 +8,10 @@
     "start": "node server.js",
     "test": "bash test.sh"
   },
+  "nodemonConfig": {
+    "ignore": ["data.json", ".tmp/*", "node_modules/*"],
+    "delay": 2500
+  },
   "dependencies": {
     "express": "^4.19.2",
     "ws": "^8.18.0"
