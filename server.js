@@ -19,7 +19,11 @@ function verifyPw(pw, stored) {
 }
 
 const PORT = process.env.PORT || 3000;
-const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, 'data.json');
+// 数据文件默认存在 node_modules/.thunderdata/（持久 volume 内，且 nodemon 默认忽略 node_modules，
+// 运行时写数据不会触发线上 nodemon 重启循环）。可用 DATA_FILE 环境变量覆盖（供测试隔离）。
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'node_modules', '.thunderdata');
+const DATA_FILE = process.env.DATA_FILE || path.join(DATA_DIR, 'data.json');
+const LEGACY_DATA_FILE = path.join(__dirname, 'data.json'); // 旧路径：迁移用
 
 // ==================== 10 个预设账户（uid 固定，name 可自定义，密码独立） ====================
 const DEFAULT_PASSWORD = '123456';
@@ -38,6 +42,13 @@ const PRESET_ACCOUNTS = [
 
 // ==================== 数据加载 / 保存 ====================
 function load() {
+  if (!fs.existsSync(DATA_FILE) && fs.existsSync(LEGACY_DATA_FILE)) {
+    // 一次性迁移旧路径数据（避免用户战绩/好友丢失）
+    try {
+      fs.mkdirSync(path.dirname(DATA_FILE), { recursive: true });
+      fs.copyFileSync(LEGACY_DATA_FILE, DATA_FILE);
+    } catch (e) {}
+  }
   if (fs.existsSync(DATA_FILE)) {
     try { return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); } catch (e) {}
   }
@@ -68,11 +79,33 @@ for (const a of db.accounts) {
 }
 if (migrated) save(); // ⚠ 仅在数据格式实际变化时落盘：启动时无条件写盘会触发线上 nodemon 重启循环
 
-const sessions = new Map(); // token -> uid
+const sessions = null; // 已改用无状态 JWT（保留变量名注释以免误用）
 const wsClients = new Map(); // uid -> WebSocket
 
 const findAccount = uid => db.accounts.find(a => a.uid === uid);
 const online = uid => wsClients.has(uid);
+
+// ==================== 会话（无状态 JWT：服务器重启不丢登录态） ====================
+let JWT_SECRET = db.jwtSecret;
+if (!JWT_SECRET) { JWT_SECRET = db.jwtSecret = crypto.randomBytes(32).toString('hex'); migrated = true; save(); }
+const b64url = buf => Buffer.from(buf).toString('base64url');
+function signJwt(uid) {
+  const payload = b64url(JSON.stringify({ uid, iat: Date.now() }));
+  const sig = crypto.createHmac('sha256', JWT_SECRET).update(payload).digest('base64url');
+  return payload + '.' + sig;
+}
+function verifyJwt(token) {
+  try {
+    const [payload, sig] = String(token).split('.');
+    if (!payload || !sig) return null;
+    const expect = crypto.createHmac('sha256', JWT_SECRET).update(payload).digest('base64url');
+    if (sig.length !== expect.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expect))) return null;
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    // 30 天有效期
+    if (!data.uid || Date.now() - data.iat > 30 * 24 * 3600 * 1000) return null;
+    return data.uid;
+  } catch (e) { return null; }
+}
 
 // ==================== HTTP 服务 ====================
 const app = express();
@@ -90,23 +123,16 @@ app.post('/api/login', (req, res) => {
   const acc = findAccount(uid);
   if (!acc) return res.status(401).json({ error: '账户不存在' });
   if (!acc.passwordHash || !verifyPw(password, acc.passwordHash)) return res.status(401).json({ error: '密码错误' });
-  const token = crypto.randomBytes(24).toString('hex');
-  sessions.set(token, acc.uid);
-  res.json({ token, uid: acc.uid, name: acc.name });
+  res.json({ token: signJwt(acc.uid), uid: acc.uid, name: acc.name });
 });
 
-// 退出登录
-app.post('/api/logout', (req, res) => {
-  const token = (req.headers.authorization || '').replace('Bearer ', '');
-  if (sessions.delete(token)) return res.json({ ok: true });
-  res.status(401).json({ error: '无效会话' });
-});
+// 退出登录（无状态 JWT：服务端无需作废，客户端删除本地 token 即可）
+app.post('/api/logout', (req, res) => res.json({ ok: true }));
 
 // 鉴权中间件
 function auth(req, res, next) {
-  const token = (req.headers.authorization || '').replace('Bearer ', '');
-  const uid = sessions.get(token);
-  if (!uid) return res.status(401).json({ error: '未登录' });
+  const uid = verifyJwt((req.headers.authorization || '').replace('Bearer ', ''));
+  if (!uid || !findAccount(uid)) return res.status(401).json({ error: '未登录' });
   req.uid = uid;
   next();
 }
@@ -236,9 +262,8 @@ function handleMessage(ws, msg) {
 
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url, 'http://x');
-  const token = url.searchParams.get('token');
-  const uid = sessions.get(token);
-  if (!uid) { ws.close(4001, 'unauthorized'); return; }
+  const uid = verifyJwt(url.searchParams.get('token'));
+  if (!uid || !findAccount(uid)) { ws.close(4001, 'unauthorized'); return; }
   ws.uid = uid;
   wsClients.set(uid, ws);
   broadcastPresence(uid, true);
