@@ -5,3 +5,4 @@ CNAME
 bonto_auth.json
 .bonto_session
 .bonto_headers
+.tmp/

@@ -5,7 +5,8 @@
   "description": "雷霆战机 - 2D 飞行射击联机游戏",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "bash test.sh"
   },
   "dependencies": {
     "express": "^4.19.2",

@@ -5,8 +5,21 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+// 密码哈希（scrypt，无新依赖）：data.json 中不再存明文密码
+function hashPw(pw) {
+  const salt = crypto.randomBytes(8).toString('hex');
+  return salt + ':' + crypto.scryptSync(String(pw), salt, 32).toString('hex');
+}
+function verifyPw(pw, stored) {
+  try {
+    const [salt, hash] = String(stored).split(':');
+    const calc = crypto.scryptSync(String(pw), salt, 32).toString('hex');
+    return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(calc, 'hex'));
+  } catch (e) { return false; }
+}
+
 const PORT = process.env.PORT || 3000;
-const DATA_FILE = path.join(__dirname, 'data.json');
+const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, 'data.json');
 
 // ==================== 10 个预设账户（uid 固定，name 可自定义，密码独立） ====================
 const DEFAULT_PASSWORD = '123456';
@@ -35,13 +48,14 @@ function save() {
 }
 
 let db = load();
-// 合并预设账户（防止重复 / 缺失，并同步密码）
+// 合并预设账户（防止重复 / 缺失，并同步密码）；密码一律以 scrypt 哈希存储
 for (const a of PRESET_ACCOUNTS) {
   const existing = db.accounts.find(x => x.uid === a.uid);
   if (existing) {
-    existing.password = a.password; // 密码是系统固定凭证，始终以预设为准
+    existing.passwordHash = hashPw(a.password); // 密码是系统固定凭证，始终以预设为准
+    delete existing.password;                    // 迁移：移除旧明文字段
   } else {
-    db.accounts.push({ ...a });
+    db.accounts.push({ uid: a.uid, name: a.name, passwordHash: hashPw(a.password) });
   }
 }
 if (!db.scores) db.scores = {};
@@ -50,6 +64,7 @@ for (const a of db.accounts) {
   if (!db.scores[a.uid]) db.scores[a.uid] = [];
   if (!db.friends[a.uid]) db.friends[a.uid] = [];
 }
+save(); // 立即落盘（迁移旧明文密码为哈希 / 同步预设账户）
 
 const sessions = new Map(); // token -> uid
 const wsClients = new Map(); // uid -> WebSocket
@@ -72,7 +87,7 @@ app.post('/api/login', (req, res) => {
   const password = String(req.body?.password || '');
   const acc = findAccount(uid);
   if (!acc) return res.status(401).json({ error: '账户不存在' });
-  if (password !== acc.password) return res.status(401).json({ error: '密码错误' });
+  if (!acc.passwordHash || !verifyPw(password, acc.passwordHash)) return res.status(401).json({ error: '密码错误' });
   const token = crypto.randomBytes(24).toString('hex');
   sessions.set(token, acc.uid);
   res.json({ token, uid: acc.uid, name: acc.name });
@@ -122,9 +137,15 @@ app.get('/api/scores', auth, (req, res) => {
 });
 
 app.post('/api/scores', auth, (req, res) => {
+  const kills = Math.max(0, Math.floor(+req.body?.kills || 0));
+  const score = Math.max(0, Math.floor(+req.body?.score || 0));
+  // 防刷合理性校验：单杀最高分（Boss 7500 分 × 连击 x3）也到不了这个上限，明显伪造的战绩直接拒绝
+  if (score > kills * 23000 + 20000) {
+    return res.status(400).json({ error: '数据异常，战绩未被记录' });
+  }
   const rec = {
-    score: Math.max(0, Math.floor(+req.body?.score || 0)),
-    kills: Math.max(0, Math.floor(+req.body?.kills || 0)),
+    score,
+    kills,
     mode: String(req.body?.mode || 'solo'),
     ts: Date.now(),
   };
